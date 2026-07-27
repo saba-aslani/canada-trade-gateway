@@ -62,6 +62,7 @@ def load_latest_congestion() -> pd.DataFrame:
         join latest l
           on c.region = l.region
          and c.snapshot_ts = l.snapshot_ts
+        order by c.region
     """)
 
 
