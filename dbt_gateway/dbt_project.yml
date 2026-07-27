@@ -1,0 +1,22 @@
+name: 'trade_gateway'
+version: '1.0.0'
+config-version: 2
+
+profile: 'trade_gateway'
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  trade_gateway:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: marts

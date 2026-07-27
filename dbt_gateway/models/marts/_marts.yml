@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: dim_crossings
+    description: One row per CBSA land border crossing, derived from the live feed.
+    columns:
+      - name: crossing_key
+        tests: [unique, not_null]
+      - name: crossing_name
+        tests: [unique, not_null]
+      - name: region_group
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['pacific', 'ontario', 'quebec', 'atlantic', 'prairie']
+
+  - name: fct_border_waits
+    description: One row per crossing per traffic type per direction per fetch.
+    columns:
+      - name: wait_observation_key
+        tests: [unique, not_null]
+      - name: crossing_key
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_crossings')
+                field: crossing_key
+      - name: traffic_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['commercial', 'travellers']
+      - name: direction
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['canada', 'us']
+      - name: delay_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['reported', 'not_applicable', 'not_reported', 'closed', 'unknown']
+      - name: delay_minutes
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 480
+              config:
+                severity: warn
+
+  - name: dim_vessels
+    description: One row per vessel observed in the monitored port areas.
+    columns:
+      - name: mmsi
+        tests: [unique, not_null]
+      - name: vessel_category
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['cargo', 'tanker', 'passenger', 'fishing_special',
+                         'service', 'other', 'unknown']
+
+  - name: fct_port_congestion
+    description: One row per monitored port region per AIS snapshot window.
+    columns:
+      - name: congestion_key
+        tests: [unique, not_null]
+      - name: region
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['vancouver', 'prince_rupert']
+      - name: stationary_share
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1

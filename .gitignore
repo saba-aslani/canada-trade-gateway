@@ -3,3 +3,6 @@ __pycache__/
 .env
 .venv/
 venv/
+dbt_gateway/target/
+dbt_gateway/dbt_packages/
+dbt_gateway/logs/

@@ -1,0 +1,15 @@
+# Save this as  C:\Users\<you>\.dbt\profiles.yml
+# Values come from your Neon connection string; never commit real credentials.
+trade_gateway:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: ep-xxx-pooler.us-west-2.aws.neon.tech
+      user: neondb_owner
+      password: "{{ env_var('NEON_PASSWORD') }}"
+      port: 5432
+      dbname: neondb
+      schema: public
+      sslmode: require
+      threads: 4

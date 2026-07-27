@@ -1,0 +1,38 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Landing zone written by the ingestion scripts. Values are stored exactly
+      as received from CBSA and AISstream; all parsing happens downstream.
+    schema: raw
+    tables:
+      - name: cbsa_border_waits
+        description: One row per crossing per fetch of the CBSA live feed.
+        loaded_at_field: fetched_at
+        freshness:
+          warn_after: {count: 2, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: observation_id
+            tests: [unique, not_null]
+          - name: customs_office
+            tests: [not_null]
+
+      - name: ais_position_snapshots
+        description: One row per vessel per snapshot window.
+        loaded_at_field: snapshot_ts
+        freshness:
+          warn_after: {count: 2, period: hour}
+          error_after: {count: 12, period: hour}
+        columns:
+          - name: snapshot_id
+            tests: [unique, not_null]
+          - name: mmsi
+            tests: [not_null]
+
+      - name: ais_ship_static
+        description: Vessel attributes, upserted as ShipStaticData messages arrive.
+        columns:
+          - name: mmsi
+            tests: [unique, not_null]
