@@ -207,8 +207,13 @@ def main() -> int:
     snapshot_ts = datetime.now(timezone.utc)
     positions, statics = asyncio.run(collect())
     if not positions and not statics:
-        log.warning("No AIS messages received in window — nothing written.")
-        return 0
+        log.error(
+            "No AIS messages received in %ds. Usually an invalid or revoked "
+            "API key, or a stream outage. Failing loudly so the run does not "
+            "report success with no data.",
+            LISTEN_SECONDS,
+        )
+        return 1
     write(snapshot_ts, positions, statics)
     log.info(
         "Snapshot %s: %d vessel positions, %d static records.",
