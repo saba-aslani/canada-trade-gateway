@@ -5,10 +5,15 @@ on:
     - cron: "*/15 * * * *"   # every 15 min (GitHub may delay/skip under load)
   workflow_dispatch: {}       # manual trigger for testing
 
+# A late run must never overlap a running one and write the same snapshot twice.
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +22,7 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install dependencies
+      - name: Install ingestion dependencies
         run: pip install -r requirements.txt
 
       - name: Fetch CBSA border wait times
@@ -33,3 +38,20 @@ jobs:
           AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
           AIS_LISTEN_SECONDS: "240"
         run: python ais_snapshot.py
+
+      # Landing new rows is only half the job: the dashboard reads the marts,
+      # so the warehouse has to be rebuilt in the same run or the "live" view
+      # silently freezes at the last manual build.
+      - name: Install dbt
+        run: pip install dbt-postgres==1.10.0
+
+      - name: Build and test the warehouse
+        working-directory: dbt_gateway
+        env:
+          DBT_PROFILES_DIR: ci
+          NEON_HOST: ${{ secrets.NEON_HOST }}
+          NEON_USER: ${{ secrets.NEON_USER }}
+          NEON_PASSWORD: ${{ secrets.NEON_PASSWORD }}
+        run: |
+          dbt deps
+          dbt build

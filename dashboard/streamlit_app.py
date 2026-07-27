@@ -342,13 +342,23 @@ def render_ports(days: int) -> None:
         )
 
     trend = load_congestion_trend(days)
-    if len(trend) > 2:
+    if trend["snapshot_ts"].nunique() >= 4:
         wide = trend.pivot_table(
             index="snapshot_ts", columns="region",
             values="stationary_share", aggfunc="mean",
-        )
+        ).sort_index()
         wide.columns = [c.replace("_", " ").title() for c in wide.columns]
-        st.line_chart(wide, height=240, color=[CORAL, SOUNDING][: len(wide.columns)])
+        eyebrow("Share of vessels holding — trend")
+        st.line_chart(
+            wide, height=240,
+            color=[CORAL, SOUNDING][: len(wide.columns)],
+        )
+    else:
+        st.markdown(
+            '<p class="note">The holding trend appears once a few hours of '
+            'readings have accumulated.</p>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_border(days: int) -> None:
@@ -390,15 +400,26 @@ def render_border(days: int) -> None:
         unsafe_allow_html=True,
     )
 
-    st.markdown(
-        f'<p class="note">Slowest lane right now is {worst.crossing_name} '
-        f'({worst.canada_province}), averaging {avg_delay:.0f} minutes across '
-        f'all reporting crossings.</p>',
-        unsafe_allow_html=True,
+    avg_text = (
+        "under a minute" if avg_delay < 1
+        else f"{avg_delay:.0f} minute" + ("" if round(avg_delay) == 1 else "s")
     )
+    lead = (
+        f"Every reporting commercial lane is clear. Average wait is {avg_text}."
+        if worst.delay_minutes == 0 else
+        f"Slowest lane right now is {worst.crossing_name} "
+        f"({worst.canada_province}) at {int(worst.delay_minutes)} minutes. "
+        f"Average across all reporting crossings is {avg_text}."
+    )
+    st.markdown(f'<p class="note">{lead}</p>', unsafe_allow_html=True)
 
+    commercial = commercial.assign(
+        delay_minutes=pd.to_numeric(commercial["delay_minutes"], errors="coerce")
+    )
     ranked = (
-        commercial.sort_values("delay_minutes", ascending=False)
+        commercial.sort_values(
+            ["delay_minutes", "crossing_name"], ascending=[False, True]
+        )
         .loc[:, ["crossing_name", "canada_province", "delay_minutes", "congestion_band"]]
         .rename(columns={
             "crossing_name": "Crossing",
