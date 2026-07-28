@@ -44,10 +44,25 @@ def get_engine():
     return create_engine(st.secrets["DATABASE_URL"], pool_pre_ping=True)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=120, show_spinner=False)
 def run_query(sql: str) -> pd.DataFrame:
     with get_engine().connect() as conn:
         return pd.read_sql(text(sql), conn)
+
+
+def load_freshness() -> pd.DataFrame:
+    """Age of the newest reading in each feed, measured in the database."""
+    return run_query(f"""
+        select 'ports' as feed,
+               max(snapshot_ts) as latest_at,
+               extract(epoch from (now() - max(snapshot_ts))) / 60 as age_minutes
+        from {MARTS}.fct_port_congestion
+        union all
+        select 'border' as feed,
+               max(fetched_at) as latest_at,
+               extract(epoch from (now() - max(fetched_at))) / 60 as age_minutes
+        from {MARTS}.fct_border_waits
+    """)
 
 
 def load_latest_congestion() -> pd.DataFrame:
@@ -62,7 +77,6 @@ def load_latest_congestion() -> pd.DataFrame:
         join latest l
           on c.region = l.region
          and c.snapshot_ts = l.snapshot_ts
-        order by c.region
     """)
 
 
@@ -214,6 +228,20 @@ def inject_styles() -> None:
         .sounding .value.warn {{ color: {AMBER}; }}
         .sounding .value.alert {{ color: {CORAL}; }}
 
+        .freshness {{
+            display: inline-block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: .72rem;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+            padding: .2rem .55rem;
+            margin: .1rem .4rem .1rem 0;
+            border: 1px solid {SOUNDING};
+            color: {SOUNDING};
+        }}
+        .freshness.warn  {{ border-color: {AMBER}; color: {AMBER}; }}
+        .freshness.alert {{ border-color: {CORAL}; color: {CORAL}; }}
+
         .note {{
             font-family: 'Spectral', serif;
             font-style: italic;
@@ -255,6 +283,38 @@ def render_masthead() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_freshness() -> None:
+    """Data age, stated up front.
+
+    A dashboard called "live" has to be honest about how live it actually is:
+    collection runs on GitHub's scheduler, which is best-effort, so the age of
+    the newest reading is a first-class fact rather than something buried in a
+    caption.
+    """
+    try:
+        freshness = load_freshness()
+    except Exception:
+        return
+
+    badges = []
+    for row in freshness.itertuples():
+        if pd.isna(row.age_minutes):
+            continue
+        age = int(row.age_minutes)
+        tone = "alert" if age > 180 else "warn" if age > 45 else ""
+        label = "Pacific ports" if row.feed == "ports" else "Land border"
+        if age < 60:
+            reading = f"{age} min old"
+        else:
+            reading = f"{age // 60}h {age % 60:02d}m old"
+        badges.append(
+            f'<span class="freshness {tone}">{label} · {reading}</span>'
+        )
+
+    if badges:
+        st.markdown("".join(badges), unsafe_allow_html=True)
 
 
 def render_ports(days: int) -> None:
@@ -450,8 +510,8 @@ def render_footer() -> None:
     st.markdown(
         '<p class="stamp">Vessel positions from AISstream · border waits from '
         'CBSA under the Open Government Licence — Canada. Readings are '
-        'collected every 15 minutes and modelled with dbt; treat them as '
-        'indicative, not operational guidance.</p>',
+        'collected on a 15-minute schedule and modelled with dbt; treat them '
+        'as indicative, not operational guidance.</p>',
         unsafe_allow_html=True,
     )
 
@@ -465,6 +525,8 @@ def main() -> None:
         days = st.slider("History window (days)", 1, 14, 7)
         if st.button("Refresh readings"):
             st.cache_data.clear()
+
+    render_freshness()
 
     try:
         render_ports(days)

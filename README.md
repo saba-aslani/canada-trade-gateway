@@ -121,6 +121,15 @@ surfaces as a red run instead of a dashboard that silently stops moving.
 load; without a concurrency group, a late run could overlap the next one and
 write duplicate snapshots.
 
+**Scheduling is triggered externally, not by GitHub's cron.** GitHub's
+scheduled workflows are best-effort and were being throttled to roughly one
+run every two hours — unacceptable for a dashboard that claims to be live. An
+external scheduler now calls the `workflow_dispatch` API every 15 minutes
+using a fine-grained token scoped to a single repository with Actions
+permission only. Manual dispatches are not throttled, so cadence became
+reliable without moving off free infrastructure. The same scheduler pings the
+dashboard URL to keep the Streamlit container from sleeping between visits.
+
 ---
 
 ## Data sources and licensing
@@ -147,6 +156,10 @@ operational guidance.
   seasonal and day-of-week patterns cannot yet be characterised.
 - GitHub's scheduler is best-effort — readings can be delayed or occasionally
   skipped, which is acceptable here and visible in the timestamps.
+- The dashboard runs on Streamlit Community Cloud, which suspends idle
+  containers. A scheduled ping reduces cold starts but cannot fully prevent
+  them, so the first visit after a quiet period may take a few seconds to
+  load.
 
 ---
 
