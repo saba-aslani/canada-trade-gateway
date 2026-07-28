@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: cbsa_border_waits_historical
+        description: >
+          Historical CBSA land border wait times, loaded once from the Open
+          Government catalogue. Static: quarterly files are published only
+          through 2019, so this table does not grow.
+        columns:
+          - name: historical_id
+            tests: [unique, not_null]
+          - name: customs_office
+            tests: [not_null]

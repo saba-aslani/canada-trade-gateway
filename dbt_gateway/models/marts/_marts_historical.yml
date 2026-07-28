@@ -1,0 +1,60 @@
+version: 2
+
+models:
+  - name: stg_border_waits_historical
+    description: >
+      Historical readings unpivoted to one row per crossing, traffic type and
+      observation, with delay text parsed to minutes.
+    columns:
+      - name: wait_observation_key
+        tests: [unique, not_null]
+      - name: traffic_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['commercial', 'travellers']
+      - name: delay_status
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['reported', 'not_applicable', 'not_reported',
+                         'closed', 'missed_entry', 'unknown']
+
+  - name: agg_border_delay_profile
+    description: >
+      Hourly delay profile per crossing, used as the training surface for the
+      wait-time model.
+    columns:
+      - name: profile_key
+        tests: [unique, not_null]
+      - name: crossing_name
+        tests: [not_null]
+      - name: hour_of_day
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+      - name: day_of_week
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 6
+      - name: delay_probability
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: season
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['winter', 'spring', 'summer', 'autumn']
+      - name: measurement_coverage
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
