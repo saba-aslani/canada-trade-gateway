@@ -18,6 +18,8 @@ import sys
 from datetime import datetime, timezone
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from db import get_connection
 
@@ -25,8 +27,35 @@ FEED_URL = "https://www.cbsa-asfc.gc.ca/bwt-taf/bwt-eng.csv"
 DELIMITER = ";;"
 EXPECTED_MIN_COLUMNS = 7
 
+# The CBSA endpoint occasionally refuses or drops a connection for a few
+# seconds. Without retries a single transient timeout kills the whole
+# scheduled run, which then shows up as a gap in the data rather than as a
+# problem worth investigating. Four attempts with exponential backoff
+# (2s, 4s, 8s) cover the outages observed in practice; anything longer than
+# that is a real outage and should still fail loudly.
+MAX_ATTEMPTS = 4
+BACKOFF_FACTOR = 2
+CONNECT_TIMEOUT_S = 15
+READ_TIMEOUT_S = 45
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("cbsa_fetch")
+
+
+def build_session() -> requests.Session:
+    """Session that retries idempotent GETs on transient network and 5xx errors."""
+    retry = Retry(
+        total=MAX_ATTEMPTS - 1,
+        connect=MAX_ATTEMPTS - 1,
+        read=MAX_ATTEMPTS - 1,
+        backoff_factor=BACKOFF_FACTOR,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
 
 
 def parse_feed(text: str) -> list[dict]:
@@ -63,8 +92,13 @@ def parse_feed(text: str) -> list[dict]:
 def main() -> int:
     fetched_at = datetime.now(timezone.utc)
 
-    resp = requests.get(FEED_URL, timeout=30)
-    resp.raise_for_status()
+    session = build_session()
+    try:
+        resp = session.get(FEED_URL, timeout=(CONNECT_TIMEOUT_S, READ_TIMEOUT_S))
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        log.error("CBSA feed unreachable after %d attempts: %s", MAX_ATTEMPTS, exc)
+        return 1
     resp.encoding = "utf-8-sig"
     rows = parse_feed(resp.text)
 

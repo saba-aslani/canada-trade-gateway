@@ -1,9 +1,7 @@
 name: ingest
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"   # every 15 min (GitHub may delay/skip under load)
-  workflow_dispatch: {}       # manual trigger for testing
+  workflow_dispatch: {}   # driven by an external scheduler every 15 minutes
 
 # A late run must never overlap a running one and write the same snapshot twice.
 concurrency:
@@ -15,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -31,7 +29,13 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python cbsa_fetch.py
 
+      # The two feeds are independent sources. A CBSA outage should not cost us
+      # the vessel snapshot for that window, and neither outage should stop the
+      # warehouse from rebuilding on whatever did land. `if: always()` keeps the
+      # later steps running while still letting the job report failure, so a
+      # broken feed stays visible instead of being quietly swallowed.
       - name: AIS snapshot (Vancouver + Prince Rupert)
+        if: always()
         working-directory: ingest
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -39,13 +43,12 @@ jobs:
           AIS_LISTEN_SECONDS: "240"
         run: python ais_snapshot.py
 
-      # Landing new rows is only half the job: the dashboard reads the marts,
-      # so the warehouse has to be rebuilt in the same run or the "live" view
-      # silently freezes at the last manual build.
       - name: Install dbt
+        if: always()
         run: pip install dbt-core==1.12.0 dbt-postgres==1.11.0
 
       - name: Build and test the warehouse
+        if: always()
         working-directory: dbt_gateway
         env:
           DBT_PROFILES_DIR: ci
