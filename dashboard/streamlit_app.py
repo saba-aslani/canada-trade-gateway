@@ -110,29 +110,28 @@ def load_vessel_positions() -> pd.DataFrame:
     """)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_ml_metrics() -> pd.DataFrame:
+    """Model scores. Only change when the training script is rerun."""
     return run_query(f"""
         select evaluation, metric, value, n_rows, evaluated_at
         from {MARTS}.ml_model_metrics
     """)
 
 
-def load_ml_predictions(crossing: str) -> pd.DataFrame:
-    safe = crossing.replace("'", "''")
-    return run_query(f"""
-        select day_of_week, hour_of_day, delay_probability,
-               expected_delay_minutes
-        from {MARTS}.ml_wait_predictions
-        where crossing_name = '{safe}'
-        order by day_of_week, hour_of_day
-    """)
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_ml_predictions() -> pd.DataFrame:
+    """The whole prediction grid in one round trip.
 
-
-def load_ml_crossings() -> pd.DataFrame:
+    It is 4,368 rows — one per crossing, weekday and hour — so fetching it once
+    and filtering in memory is cheaper than querying again every time the user
+    moves a selector, and it keeps the controls instant.
+    """
     return run_query(f"""
-        select distinct crossing_name
+        select crossing_name, day_of_week, hour_of_day,
+               delay_probability, expected_delay_minutes
         from {MARTS}.ml_wait_predictions
-        order by crossing_name
+        order by crossing_name, day_of_week, hour_of_day
     """)
 
 
@@ -539,11 +538,11 @@ DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
 def render_forecast() -> None:
     """Learned commercial delay profile, with the honest caveats attached."""
     try:
-        crossings = load_ml_crossings()
+        predictions_all = load_ml_predictions()
         metrics = load_ml_metrics()
     except Exception:
         return
-    if crossings.empty:
+    if predictions_all.empty:
         return
 
     eyebrow("Learned delay profile — commercial, Canada bound")
@@ -585,16 +584,16 @@ def render_forecast() -> None:
             unsafe_allow_html=True,
         )
 
-    names = crossings["crossing_name"].tolist()
+    names = predictions_all["crossing_name"].drop_duplicates().tolist()
     default = names.index("Pacific Highway") if "Pacific Highway" in names else 0
     left, right = st.columns([2, 1])
     crossing = left.selectbox("Crossing", names, index=default)
     day = right.selectbox("Day", DAY_NAMES, index=3)
 
-    predictions = load_ml_predictions(crossing)
-    if predictions.empty:
-        return
-    day_frame = predictions[predictions["day_of_week"] == DAY_NAMES.index(day)]
+    day_frame = predictions_all[
+        (predictions_all["crossing_name"] == crossing)
+        & (predictions_all["day_of_week"] == DAY_NAMES.index(day))
+    ]
     if day_frame.empty:
         return
 
