@@ -110,6 +110,32 @@ def load_vessel_positions() -> pd.DataFrame:
     """)
 
 
+def load_ml_metrics() -> pd.DataFrame:
+    return run_query(f"""
+        select evaluation, metric, value, n_rows, evaluated_at
+        from {MARTS}.ml_model_metrics
+    """)
+
+
+def load_ml_predictions(crossing: str) -> pd.DataFrame:
+    safe = crossing.replace("'", "''")
+    return run_query(f"""
+        select day_of_week, hour_of_day, delay_probability,
+               expected_delay_minutes
+        from {MARTS}.ml_wait_predictions
+        where crossing_name = '{safe}'
+        order by day_of_week, hour_of_day
+    """)
+
+
+def load_ml_crossings() -> pd.DataFrame:
+    return run_query(f"""
+        select distinct crossing_name
+        from {MARTS}.ml_wait_predictions
+        order by crossing_name
+    """)
+
+
 def load_latest_border_waits() -> pd.DataFrame:
     return run_query(f"""
         select crossing_name, canada_province, region_group, traffic_type,
@@ -506,6 +532,88 @@ def render_border(days: int) -> None:
         st.line_chart(wide, height=260)
 
 
+DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday",
+             "Thursday", "Friday", "Saturday"]
+
+
+def render_forecast() -> None:
+    """Learned commercial delay profile, with the honest caveats attached."""
+    try:
+        crossings = load_ml_crossings()
+        metrics = load_ml_metrics()
+    except Exception:
+        return
+    if crossings.empty:
+        return
+
+    eyebrow("Learned delay profile — commercial, Canada bound")
+
+    lookup = {
+        (row.evaluation, row.metric): row.value
+        for row in metrics.itertuples()
+    }
+    model_mae = lookup.get(("holdout_2019", "model_mae_minutes"))
+    base_mae = lookup.get(("holdout_2019", "baseline_mae_minutes"))
+    roc = lookup.get(("holdout_2019", "stage1_roc_auc"))
+    share_2019 = lookup.get(("holdout_2019", "delayed_share"))
+    share_live = lookup.get(("live_2026", "delayed_share"))
+
+    c1, c2, c3 = st.columns(3)
+    if roc is not None:
+        c1.markdown(sounding("Delay classifier · ROC-AUC", f"{roc:.3f}"),
+                    unsafe_allow_html=True)
+    if model_mae is not None and base_mae is not None:
+        c2.markdown(
+            sounding("Error vs lookup table", f"{model_mae:.2f}", "min"),
+            unsafe_allow_html=True,
+        )
+        gain = (base_mae - model_mae) / base_mae * 100 if base_mae else 0
+        c3.markdown(
+            sounding("Gain over baseline", f"{gain:+.1f}", "%",
+                     tone="" if gain > 0 else "alert"),
+            unsafe_allow_html=True,
+        )
+
+    if share_2019 is not None and share_live is not None:
+        st.markdown(
+            f'<p class="note">Trained on 2016–2018 CBSA readings and tested on '
+            f'2019, so the model is only ever asked about a period it has not '
+            f'seen. Scored against readings collected by this project, '
+            f'{share_live * 100:.1f}% of commercial readings currently show a '
+            f'delay against {share_2019 * 100:.1f}% in 2019 — traffic is moving '
+            f'more freely now than the training period describes.</p>',
+            unsafe_allow_html=True,
+        )
+
+    names = crossings["crossing_name"].tolist()
+    default = names.index("Pacific Highway") if "Pacific Highway" in names else 0
+    left, right = st.columns([2, 1])
+    crossing = left.selectbox("Crossing", names, index=default)
+    day = right.selectbox("Day", DAY_NAMES, index=3)
+
+    predictions = load_ml_predictions(crossing)
+    if predictions.empty:
+        return
+    day_frame = predictions[predictions["day_of_week"] == DAY_NAMES.index(day)]
+    if day_frame.empty:
+        return
+
+    curve = day_frame.set_index("hour_of_day")[["expected_delay_minutes"]]
+    curve.columns = ["Expected delay (min)"]
+    st.line_chart(curve, height=240, color=[AMBER])
+
+    peak = day_frame.loc[day_frame["expected_delay_minutes"].idxmax()]
+    st.markdown(
+        f'<p class="note">On a {day.lower()}, {crossing} peaks around '
+        f'{int(peak.hour_of_day):02d}:00 with an expected '
+        f'{peak.expected_delay_minutes:.1f} minute wait and a '
+        f'{peak.delay_probability * 100:.0f}% chance of any delay. Expected '
+        f'delay is the probability of a delay multiplied by its likely length, '
+        f'so a low figure can mean either a rare delay or a short one.</p>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_footer() -> None:
     st.markdown(
         '<p class="stamp">Vessel positions from AISstream · border waits from '
@@ -531,6 +639,7 @@ def main() -> None:
     try:
         render_ports(days)
         render_border(days)
+        render_forecast()
     except Exception as exc:  # surfaced rather than swallowed
         st.error(
             "Could not reach the warehouse. Check the DATABASE_URL secret and "
