@@ -1,0 +1,36 @@
+name: retrain
+
+# Weekly, not per-ingestion. The training archive is static — CBSA publishes
+# granular history only through 2019 — so retraining every 15 minutes would
+# burn three minutes a run to produce identical coefficients. What genuinely
+# changes is the drift measurement, because this project's own readings keep
+# accumulating, and a week is a sensible interval for that to move.
+on:
+  schedule:
+    - cron: "0 11 * * 1"   # Mondays 11:00 UTC (03:00 Pacific)
+  workflow_dispatch: {}
+
+concurrency:
+  group: retrain
+  cancel-in-progress: false
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install model dependencies
+        run: pip install -r ml/requirements.txt
+
+      - name: Train and evaluate the wait-time model
+        working-directory: ml
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python train_wait_model.py

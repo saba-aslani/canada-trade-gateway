@@ -573,6 +573,16 @@ def render_forecast() -> None:
             unsafe_allow_html=True,
         )
 
+    trained_at = metrics["evaluated_at"].max() if "evaluated_at" in metrics else None
+    if pd.notna(trained_at):
+        age_days = (pd.Timestamp.now(tz="UTC") - pd.to_datetime(trained_at, utc=True)).days
+        st.markdown(
+            f'<span class="freshness">Model retrained '
+            f'{pd.to_datetime(trained_at, utc=True):%d %b %Y}'
+            f'{"" if age_days < 1 else f" · {age_days}d ago"}</span>',
+            unsafe_allow_html=True,
+        )
+
     if share_2019 is not None and share_live is not None:
         st.markdown(
             f'<p class="note">Trained on 2016–2018 CBSA readings and tested on '
@@ -580,7 +590,10 @@ def render_forecast() -> None:
             f'seen. Scored against readings collected by this project, '
             f'{share_live * 100:.1f}% of commercial readings currently show a '
             f'delay against {share_2019 * 100:.1f}% in 2019 — traffic is moving '
-            f'more freely now than the training period describes.</p>',
+            f'more freely now than the training period describes. The model is '
+            f'retrained weekly rather than on every reading, because the '
+            f'training archive is static — what moves is the drift measurement '
+            f'against newly collected data.</p>',
             unsafe_allow_html=True,
         )
 

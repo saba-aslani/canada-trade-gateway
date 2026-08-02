@@ -36,8 +36,12 @@ approaches, with the share currently holding position rather than making way.
 A rising holding share across consecutive readings is the earliest public signal
 of berth and anchorage pressure.
 
-**Land border.** Commercial delay, Canada-bound, across 26 CBSA land crossings,
-banded from clear to severe and tracked by hour.
+**Land border.** Commercial delay, Canada-bound, across the CBSA land crossings
+currently in the live feed — 29 at the time of writing, against 26 in the
+2016–2019 archive. The feed's roster changes as CBSA adds, renames or
+temporarily drops a crossing, so `dim_crossings` is derived from the data rather
+than hard-coded, and the model only predicts for crossings present in the
+training archive.
 
 **Learned delay profile.** Expected commercial wait by crossing, weekday and
 hour, from a model trained on 2016–2018 readings and tested on 2019.
@@ -202,6 +206,9 @@ operational guidance.
   should be read as indicative.
 - The dashboard runs on Streamlit Community Cloud, which suspends idle
   containers, so the first visit after a quiet period takes a few seconds.
+- The live feed and the historical archive do not cover an identical set of
+  crossings, so the learned delay profile is available for the 26 crossings
+  present in 2016–2019 rather than all 29 currently reporting.
 
 ---
 
