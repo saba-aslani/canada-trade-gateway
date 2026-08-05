@@ -209,6 +209,11 @@ operational guidance.
 - The live feed and the historical archive do not cover an identical set of
   crossings, so the learned delay profile is available for the 26 crossings
   present in 2016–2019 rather than all 29 currently reporting.
+- AISstream is a free service in beta with no uptime guarantee, and outages do
+  happen — the vessel snapshot step is expected to fail during them. The run
+  reports failure so the outage stays visible, while the border feed and the
+  warehouse build continue on whatever landed. Vessel readings resume on their
+  own when the stream returns.
 
 ---
 
